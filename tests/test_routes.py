@@ -32,6 +32,7 @@ from service import app
 from service.common import status
 from service.models import db, init_db, Product
 from tests.factories import ProductFactory
+from urllib.parse import quote_plus
 
 # Disable all but critical errors during normal test run
 # uncomment for debugging failing tests
@@ -166,6 +167,124 @@ class TestProductRoutes(TestCase):
     #
     # ADD YOUR TEST CASES HERE
     #
+    def test_get_product(self):
+        """Test to get a single product"""
+        test_product = self._create_products(1)[0]
+        response = self.client.get(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        self.assertEqual(data["name"], test_product.name)
+
+    def test_get_product_not_found(self):
+        """Test to get a product that was not found"""
+        response = self.client.get(f"{BASE_URL}/0")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        data = response.get_json()
+        self.assertIn("was not found", data["message"])
+
+    # UPDATE PRODUCT
+    def test_update_product(self):
+        """Test to update an existing product"""
+        # Create a product to update
+        test_product = ProductFactory()
+        # Send a POST request to the endpoint
+        response = self.client.post(BASE_URL, json=test_product.serialize())
+        # Assert status code - 201
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Update the product
+        new_product = response.get_json()
+        new_product["description"] = "unknown"
+        # Send PUT request to endpoint
+        response = self.client.put(f"{BASE_URL}/{new_product['id']}", json=new_product)
+        # Assert status code - 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        updated_product = response.get_json()
+        # Assert that product description was updated
+        self.assertEqual(updated_product["description"], "unknown")
+
+    # DELETE PRODUCT
+    def test_delete_product(self):
+        """Test to delete a product"""
+        products = self._create_products(5)
+        product_count = self.get_product_count()
+        test_product = products[0]
+        response = self.client.delete(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # Check if response data is empty
+        self.assertEqual(len(response.data), 0)        
+        response = self.client.get(f"{BASE_URL}/{test_product.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        new_count = self.get_product_count()
+        # Check that new count is one less
+        self.assertEqual(new_count, product_count - 1)
+
+    # LIST ALL PRODUCTS
+    def test_get_product_list(self):
+        """Test to list all products"""
+        self._create_products(5)
+        response = self.client.get(BASE_URL)
+        # Assert status code - 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        # Assert that the length of the response data is 5
+        self.assertEqual(len(data), 5)
+
+    # LIST BY NAME
+    def test_query_by_name(self):
+        """Test to query a product by name"""
+        products = self._create_products(5)
+        test_name = products[0].name
+        name_count = len([product for product in products if product.name == test_name])
+        # Send a GET request to the endpoint passing in the name as a query param
+        response = self.client.get(
+            BASE_URL, query_string=f"name={quote_plus(test_name)}"
+        )
+        # Assert status code - 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        # Assert the number of products that matched the test name
+        self.assertEqual(len(data), name_count)
+        # Assert that each product's name matches the test name
+        for product in data:
+            self.assertEqual(product["name"], test_name)
+
+    # LIST BY CATEGORY
+    def test_query_by_category(self):
+        """Test to query a product by category"""
+        products = self._create_products(10)
+        category = products[0].category
+        found = [product for product in products if product.category == category]
+        found_count = len(found)
+        logging.debug("Found Products [%d] %s", found_count, found)
+        # Send a GET request to the endpoint passing in the category as a query param
+        response = self.client.get(BASE_URL, query_string=f"category={category.name}")
+        # Assert status code - 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        # Assert the number of products with this category
+        self.assertEqual(len(data), found_count)
+        # Assert that all returned products belong to the specified category
+        for product in data:
+            self.assertEqual(product["category"], category.name)
+
+    # LIST BY AVAILABILITY
+    def test_query_by_availability(self):
+        """It should Query Products by availability"""
+        products = self._create_products(10)
+        available_products = [product for product in products if product.available is True]
+        available_count = len(available_products)        
+        # Send a GET request to the endpoint to retrieve all available products
+        response = self.client.get(
+            BASE_URL, query_string="available=true"
+        )
+        # Assert status code - 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.get_json()
+        # Assert that the number of products returned matches the available count
+        self.assertEqual(len(data), available_count)
+        # Assert that each returned product's 'available' attribute is set to True
+        for product in data:
+            self.assertEqual(product["available"], True)
 
     ######################################################################
     # Utility functions
